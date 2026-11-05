@@ -1,0 +1,205 @@
+import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
+import { mkdir } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { chromium, expect as baseExpect } from "@playwright/test";
+import { PDFDocument } from "pdf-lib";
+import { BlobServiceClient } from "@azure/storage-blob";
+import { connect, query, TYPES, subscription } from "../../azure/poc/client.mjs";
+import { cleanupFixtures, createFixtures, digest, runtime } from "../../azure/poc/fixtures.mjs";
+const base = process.env.TEST_URL ?? "http://localhost:3084";
+const screenshots = process.env.SCREENSHOT_DIR ?? "/tmp/ofek324-preview";
+const prefix = base.startsWith("https:") ? "__Host-" : "";
+const expect = baseExpect.configure({ timeout: 30000 });
+const c = await connect();
+let browser, fixtures, checks = 0;
+const pass = name => { checks++; console.log(`PASS ${name}`); };
+const form = (page, action) => page.locator(`form:has(input[name="action"][value="${action}"])`);
+try {
+  browser = await chromium.launch();
+  fixtures = await createFixtures(c);
+  const as = runtime(c, fixtures), m = fixtures.members;
+  await mkdir(screenshots, { recursive: true });
+  const anonymous = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  const landing = await anonymous.newPage();
+  await landing.goto(base);
+  await expect(landing.locator("html")).toHaveAttribute("dir", "rtl");
+  await expect(landing.getByRole("heading", { level: 1 })).toContainText("הצעד הבא");
+  await landing.screenshot({ path: `${screenshots}/landing-desktop.png`, fullPage: true });
+  await landing.goto(`${base}/jobs`);
+  await expect(landing).toHaveURL(`${base}/login`);
+  pass("anonymous landing is Hebrew RTL; private routes require login");
+  async function login(role) {
+    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const page = await context.newPage(), magic = randomBytes(32).toString("base64url"), challenge = randomBytes(32).toString("base64url");
+    await as(null, "EXEC authn.request_link @email,@token,@challenge,@ip;", [
+      ["email", TYPES.NVarChar, m[role].email], ["token", TYPES.Binary, digest(magic)],
+      ["challenge", TYPES.Binary, digest(challenge)], ["ip", TYPES.Binary, digest(randomBytes(32))],
+    ]);
+    await context.addCookies([{ name: `${prefix}ofek_challenge`, value: challenge, url: base, httpOnly: true, secure: base.startsWith("https:"), sameSite: "Lax" }]);
+    await page.goto(`${base}/auth/verify?token=${magic}`);
+    const [link] = await query(c, "SELECT consumed_at FROM authn.login_links WHERE token_hash=@hash;", [["hash", TYPES.Binary, digest(magic)]]);
+    assert.equal(link.consumed_at, null, "GET must not consume login link");
+    await page.getByRole("button", { name: "כניסה לחשבון", exact: true }).click();
+    await expect.poll(() => new URL(page.url()).pathname).toBe("/");
+    assert.ok((await context.cookies()).some(cookie => cookie.name === `${prefix}ofek_session` && cookie.httpOnly));
+    pass(`real magic-link POST and secure session for ${role}`);
+    return page;
+  }
+  const pending = await login("pending");
+  await pending.goto(`${base}/jobs`);
+  await expect(pending).toHaveURL(`${base}/pending`);
+  pass("pending members remain on verification page");
+  await form(pending, "verification").getByRole("button").click();
+  await expect(form(pending, "verification").getByRole("status")).toContainText("הבקשה נשמרה");
+  pass("verification form saves through the guarded database procedure");
+  const poster = await login("poster");
+  await poster.goto(`${base}/jobs/new`);
+  const title = `[בדיקה] Phoenix ${fixtures.run}`;
+  await poster.locator('[name="title"]').fill(title);
+  await poster.locator('[name="company"]').fill("חברת דוגמה");
+  await poster.locator('[name="city"]').fill("תל אביב");
+  await poster.locator('[name="tech_tags"]').fill("Python, React");
+  await poster.locator('textarea[name="description"]').fill("## Synthetic vacancy\n\nתפקיד פיתוח לדוגמה בלבד. שלום John 050-1234567 ₪1,234");
+  await poster.locator('[name="referral_available"]').check();
+  await form(poster, "save_job").getByRole("button", { name: "פרסום המשרה", exact: true }).click();
+  await expect(poster).toHaveURL(/\/jobs\/[0-9a-f-]{36}$/);
+  const jobId = new URL(poster.url()).pathname.split("/")[2];
+  await expect(poster.getByRole("heading", { level: 1 })).toHaveText(title);
+  pass("job creation and rich Markdown detail work");
+  await poster.goto(`${base}/jobs/${jobId}/edit`);
+  await poster.locator('[name="title"]').fill(`${title} edited`);
+  await form(poster, "save_job").getByRole("button", { name: "שמירת השינויים" }).click();
+  await expect(poster.getByRole("heading", { level: 1 })).toHaveText(`${title} edited`);
+  pass("creator can edit their job");
+  const seeker = await login("seeker");
+  await seeker.goto(`${base}/jobs?tags=python&referral=1`);
+  await expect(seeker.getByRole("link", { name: `${title} edited`, exact: true })).toBeVisible();
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const hits = await query(c, "SELECT id FROM app.jobs WHERE id=@id AND FREETEXT((title,company,description),N'Phoenix',LANGUAGE 0);", [["id", TYPES.UniqueIdentifier, jobId]]);
+    if (hits.length) break;
+    if (attempt === 29) throw new Error("Full-text index did not populate within 60 seconds");
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
+  await seeker.goto(`${base}/jobs?query=Phoenix`);
+  await expect(seeker.getByRole("link", { name: `${title} edited`, exact: true })).toBeVisible();
+  pass("real full-text search, tag and referral filters work");
+  await seeker.locator("details").getByText("שמירת החיפוש וקבלת עדכון שבועי", { exact: true }).click();
+  await form(seeker, "save_search").locator('[name="name"]').fill("Phoenix test search");
+  await form(seeker, "save_search").locator('[name="email_enabled"]').check();
+  await form(seeker, "save_search").getByRole("button", { name: "שמירת החיפוש" }).click();
+  await expect(form(seeker, "save_search").getByRole("status")).toContainText("החיפוש נשמר");
+  pass("saved search and explicit digest consent work");
+  await seeker.goto(`${base}/my-profile`);
+  await seeker.locator('[name="headline"]').fill("שלום John 050-1234567 ₪1,234");
+  await form(seeker, "save_profile").getByRole("button", { name: "שמירת הפרופיל" }).click();
+  await expect(form(seeker, "save_profile").getByRole("status")).toContainText("הפרופיל נשמר");
+  const document = await PDFDocument.create(); document.addPage().drawText("Synthetic CV - no real personal information");
+  const bytes = Buffer.from(await document.save());
+  await seeker.locator('[name="cv"]').setInputFiles({ name: "synthetic.pdf", mimeType: "application/pdf", buffer: bytes });
+  await form(seeker, "upload_cv").locator('button[type="submit"]').click();
+  assert.equal(await seeker.locator('[name="attested"]').evaluate(el => el.validity.valueMissing), true);
+  await seeker.locator('[name="attested"]').check();
+  await form(seeker, "upload_cv").locator('button[type="submit"]').click();
+  await expect(form(seeker, "upload_cv").getByRole("status")).toContainText("הועלו");
+  const [cv] = await query(c, "SELECT cv_document_id FROM app.profiles WHERE member_id=@id;", [["id", TYPES.UniqueIdentifier, m.seeker.id]]);
+  const cvId = cv.cv_document_id.toLowerCase();
+  const response = await seeker.request.get(`${base}/api/cv/${cvId}`, { maxRedirects: 0 });
+  assert.equal(response.status(), 303);
+  const sas = response.headers().location;
+  const downloaded = await fetch(sas);
+  assert.equal(downloaded.status, 200); assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), bytes);
+  assert.notEqual((await fetch(sas.split("?")[0])).status, 200);
+  assert.equal((await anonymous.request.get(`${base}/api/cv/${cvId}`, { maxRedirects: 0 })).status(), 401);
+  pass("attestation gates PDF upload; private signed download is exact and anonymous access is denied");
+  await seeker.goto(`${base}/jobs/${jobId}`);
+  await form(seeker, "apply").getByRole("button").click();
+  await expect(seeker.getByText("המועמדות שלכם נשלחה", { exact: true })).toBeVisible();
+  await poster.goto(`${base}/jobs/${jobId}/applicants`);
+  await expect(poster.getByRole("link", { name: "[בדיקה] seeker", exact: true })).toBeVisible();
+  pass("profile application appears only in the poster's applicant view");
+  const alumnus = await login("alumnus");
+  await alumnus.goto(`${base}/profiles/${m.seeker.id}`);
+  await alumnus.locator('[name="text"]').fill("המלצה סינתטית: עבודה מקצועית, אחריות ושיתוף פעולה מצוין בצוות.");
+  await form(alumnus, "recommend").getByRole("button").click();
+  await expect(alumnus.locator(".recommendation-text").filter({ hasText: "המלצה סינתטית" })).toBeVisible();
+  await expect(alumnus.getByText("ממתין לאישור", { exact: true })).toBeVisible();
+  await seeker.goto(`${base}/my-profile`);
+  await seeker.getByRole("button", { name: "אישור ההמלצה", exact: true }).click();
+  await expect(seeker.getByText("מאושר", { exact: true })).toBeVisible();
+  await poster.goto(`${base}/profiles?recommended=1`);
+  await expect(poster.getByRole("link", { name: "[בדיקה] seeker", exact: true })).toBeVisible();
+  await expect(poster.locator("article").filter({ has: poster.getByRole("link", { name: "[בדיקה] seeker", exact: true }) })
+    .getByText("1 המלצות", { exact: true })).toBeVisible();
+  await poster.goto(`${base}/profiles/${m.seeker.id}`);
+  await expect(poster.locator(".author-preview")).toContainText("[בדיקה] alumnus");
+  await poster.locator(".author-preview").click();
+  await expect(poster.getByRole("heading", { level: 1 })).toHaveText("[בדיקה] alumnus");
+  pass("recommendation review, discovery badge and author credibility card work");
+  await alumnus.goto(`${base}/account`);
+  await form(alumnus, "issue_invite").first().getByRole("button").click();
+  await expect(alumnus.getByRole("textbox", { name: "קוד ההזמנה האישי" })).toBeVisible();
+  const invitation = await alumnus.getByRole("textbox", { name: "קוד ההזמנה האישי" }).inputValue();
+  const invitee = await login("invitee");
+  await form(invitee, "redeem_invite").locator('[name="code"]').fill(invitation);
+  await form(invitee, "redeem_invite").getByRole("button").click();
+  await expect(invitee.getByRole("heading", { level: 1 })).toHaveText("האופק הבא מתחיל כאן.");
+  pass("one-time invitation unlocks a verified member through the UI");
+  const admin = await login("admin");
+  await admin.goto(`${base}/admin`);
+  const pendingCard = admin.locator("article").filter({ hasText: m.pending.email });
+  await pendingCard.getByRole("button", { name: "אישור חברות", exact: true }).click();
+  await expect(pendingCard.getByText("מאושר", { exact: true })).toBeVisible();
+  await pending.goto(`${base}/jobs`);
+  await expect(pending.getByRole("heading", { level: 1 })).toHaveText("ההזדמנות הבאה שלכם");
+  pass("admin approval unlocks access without a new login");
+  await seeker.goto(`${base}/my-profile`);
+  await seeker.locator('select[name="status"]').selectOption("hidden");
+  await form(seeker, "save_profile").getByRole("button").click();
+  await expect(form(seeker, "save_profile").getByRole("status")).toBeVisible();
+  assert.equal((await poster.request.get(`${base}/api/cv/${cvId}`, { maxRedirects: 0 })).status(), 404);
+  await poster.goto(`${base}/jobs/${jobId}/applicants`);
+  await expect(poster.getByText("הפרופיל מוסתר כרגע", { exact: true })).toBeVisible();
+  pass("hiding profile removes applicant details and new CV downloads");
+  await seeker.locator('select[name="status"]').selectOption("actively_looking");
+  await form(seeker, "save_profile").getByRole("button").click();
+  await expect(form(seeker, "save_profile").getByRole("status")).toBeVisible();
+  await seeker.setViewportSize({ width: 390, height: 844 });
+  await seeker.goto(`${base}/jobs`);
+  await seeker.locator(".mobile-menu summary").click();
+  await expect(seeker.locator(".mobile-menu nav")).toBeVisible();
+  assert.ok(await seeker.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "mobile jobs must not overflow");
+  await seeker.screenshot({ path: `${screenshots}/jobs-mobile.png`, fullPage: true });
+  await seeker.goto(`${base}/my-profile`);
+  assert.ok(await seeker.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), "mixed Hebrew/Latin profile must not overflow");
+  await seeker.screenshot({ path: `${screenshots}/profile-mobile.png`, fullPage: true });
+  pass("mobile navigation, RTL and mixed Hebrew/Latin form layout fit 390px");
+  await poster.goto(`${base}/jobs/${jobId}`);
+  const deletion = form(poster, "job_action").filter({ has: poster.locator('input[name="operation"][value="delete"]') });
+  await deletion.locator('[name="confirm"]').check();
+  await deletion.getByRole("button").click();
+  await expect(poster).toHaveURL(`${base}/my-jobs`);
+  await expect(poster.getByRole("link", { name: `${title} edited`, exact: true })).toHaveCount(0);
+  pass("confirmed deletion removes the job from the owner's list");
+  const taskStatus = (await anonymous.request.post(`${base}/api/tasks`)).status();
+  assert.ok(base.startsWith("https:") ? taskStatus === 401 : [401, 503].includes(taskStatus));
+  pass("public callers cannot run the email worker");
+  console.log(`PASS ${checks} browser journeys on ${new URL(base).hostname}`);
+} finally {
+  try {
+    if (fixtures) {
+      const ids = JSON.stringify(Object.values(fixtures.members).map(member => member.id));
+      const paths = await query(c, `SELECT object_name FROM app.cv_documents WHERE owner_id IN(SELECT value FROM OPENJSON(@ids))
+        UNION SELECT object_name FROM authn.blob_cleanup WHERE LEFT(object_name,36) IN(SELECT value FROM OPENJSON(@ids));`, [["ids", TYPES.NVarChar, ids]]);
+      if (paths.length) {
+        const credential = { async getToken() {
+          const token = JSON.parse(execFileSync("az", ["account", "get-access-token", "--subscription", subscription, "--resource", "https://storage.azure.com/", "-o", "json"], { encoding: "utf8" }));
+          return { token: token.accessToken, expiresOnTimestamp: Date.now() + 300000 };
+        } };
+        const container = new BlobServiceClient("https://stofek324osalzbergdev.blob.core.windows.net", credential).getContainerClient("cvs");
+        for (const { object_name } of paths) await container.getBlobClient(object_name).deleteIfExists();
+      }
+      await cleanupFixtures(c, fixtures);
+    }
+  } finally { c.close(); await browser?.close(); }
+}

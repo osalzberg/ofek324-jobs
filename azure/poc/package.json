@@ -1,0 +1,17 @@
+{
+  "name": "ofek-azure-feasibility",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "init:db": "node verify-database.mjs --initialize-only",
+    "test": "node verify-database.mjs",
+    "test:storage": "python3 verify-storage.py"
+  },
+  "devDependencies": {
+    "tedious": "20.3.8"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
