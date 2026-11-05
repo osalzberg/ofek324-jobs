@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "test:e2e": "node tests/journeys.mjs"
+    "test:e2e": "node tests/journeys.mjs",
+    "test:branding": "node tests/branding.mjs"
   },
   "dependencies": {
     "@azure/communication-email": "^1.0.0",

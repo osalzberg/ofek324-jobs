@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import type { ComponentProps } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -53,7 +54,10 @@ export function Shell({ user, active = "/", children }: { user: Viewer | null; a
     <AppLink href={href} key={href} aria-current={(href === "/" ? active === "/" : active.startsWith(href)) ? "page" : undefined}>{label}</AppLink>)}</nav>;
   return <>
     <header className="site-header"><div className="container header-row">
-      <AppLink href="/" className="brand"><span className="brand-mark" dir="ltr">324</span>אופק</AppLink>
+      <AppLink href="/" className="brand" aria-label="אופק 324 — הבית">
+        <Image src="/ofek-unit.png" alt="סמל יחידת אופק 324" width={48} height={48} className="brand-logo" loading="eager" />
+        <span>אופק <bdi>324</bdi></span>
+      </AppLink>
       <div className="desktop-menu">{navigation}</div>
       <div className="account-nav">{user ? <>
         <span className="account-name text-sm muted"><bdi>{user.verified_name ?? "החשבון שלי"}</bdi></span>
@@ -63,7 +67,13 @@ export function Shell({ user, active = "/", children }: { user: Viewer | null; a
     </div></header>
     <div className="test-banner">סביבת פיתוח ובדיקה · משרות ופרופילים המסומנים כדוגמה אינם אמיתיים</div>
     <main id="main" className="container page-main">{children}</main>
-    <footer className="site-footer"><div className="container">אופק 324 · קהילה פרטית, קשרים אמיתיים. אין לפרסם מידע מסווג או מידע שלא אושר לפרסום.</div></footer>
+    <footer className="site-footer"><div className="container">
+      <p>אופק 324 · קהילה פרטית, קשרים אמיתיים. אין לפרסם מידע מסווג או מידע שלא אושר לפרסום.</p>
+      <p className="brand-attribution">אתר קהילתי עצמאי, שאינו אתר רשמי של צה״ל. סמל היחידה:{" "}
+        <a href="https://commons.wikimedia.org/wiki/File:OfekUnit.png">דובר צה״ל</a>{" · "}
+        <a href="https://creativecommons.org/licenses/by-sa/3.0/"><bdi>CC BY-SA 3.0</bdi></a> (הוקטן לתצוגה).
+      </p>
+    </div></footer>
   </>;
 }
 export function JobCard({ job }: { job: Job }) {

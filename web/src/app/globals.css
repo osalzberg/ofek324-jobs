@@ -150,7 +150,7 @@ h3 { font-size: 1.1rem; font-weight: 700; }
 .site-header { background: white; border-block-end: 1px solid #e8ebf3; }
 .header-row { display: flex; align-items: center; gap: 1.75rem; min-block-size: 84px; flex-wrap: wrap; padding-block: .8rem; }
 .brand { display: inline-flex; gap: .6rem; align-items: center; white-space: nowrap; font-size: 1.5rem; font-weight: 700; }
-.brand-mark { display: grid; place-items: center; inline-size: 42px; block-size: 42px; background: #e9edff; color: #3651bf; border-radius: 12px; font-size: .9rem; }
+.brand-logo { display: block; inline-size: 48px; block-size: 48px; object-fit: contain; flex-shrink: 0; }
 .navigation { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 .navigation a { padding: .55rem .65rem; border-radius: .5rem; color: #536078; font-size: .9rem; }
 .navigation a[aria-current="page"] { color: #304abc; background: #eef1ff; font-weight: 700; }
@@ -212,6 +212,8 @@ h3 { font-size: 1.1rem; font-weight: 700; }
 .markdown pre { direction: ltr; text-align: start; overflow: auto; padding: 1rem; background: #f3f5f9; border-radius: .5rem; }
 .markdown blockquote { border-inline-start: 3px solid #b5c3ed; padding-inline-start: 1rem; color: #657187; }
 .site-footer { color: #768199; font-size: .8rem; border-block-start: 1px solid #e5e9f1; padding-block: 1.5rem; }
+.brand-attribution { margin-block-start: .6rem; }
+.brand-attribution a { text-decoration: underline; }
 .mobile-menu { display: none; }
 .skip-link { position: absolute; inset-block-start: -100px; inset-inline-start: 1rem; z-index: 100; background: #fff; padding: .8rem; }
 .skip-link:focus { inset-block-start: .5rem; }

@@ -202,3 +202,22 @@ history storage. This is an estimate, **not a hard spending cap**.
 
 Free App Service can cold-start, throttle or exhaust its daily CPU quota. This is
 the requested small dev/test environment, not a production availability promise.
+
+## Emblem attribution
+
+The Ofek unit emblem is [OfekUnit.png](https://commons.wikimedia.org/wiki/File:OfekUnit.png),
+credited to the IDF Spokesperson's Unit (דובר צה״ל), under
+[CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/).
+The current file revision is dated 28 September 2019; Wikimedia records the
+permission under VRT ticket 2020091710000682.
+
+`web/public/ofek-unit.png` is a resized 256px PNG; `web/src/app/favicon.ico`
+contains resized 16, 32, 48, 64 and 256px versions. Colors and emblem design are
+unchanged. These image derivatives remain under CC BY-SA 3.0; this notice does
+not assign that license to the application's source code. Attribution is also
+displayed in the site footer. Use here does not imply IDF endorsement: this is
+an independent community application, not an official IDF service.
+
+With the application running, `npm --prefix web run test:branding` checks the
+logo, favicon, attribution and desktop/mobile layout without Azure credentials.
+Set `TEST_URL` to check a deployed instance instead.
