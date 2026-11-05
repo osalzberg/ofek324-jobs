@@ -67,14 +67,17 @@ The Azure database is still named `ofek-jobs-poc`; it now contains the complete
 
 ## Collaborating with pull requests
 
-This is a private repository. The owner invites collaborators through GitHub
-Settings > Collaborators; sharing a link alone does not grant access.
-Repository access does not grant Azure, database or application-admin access.
+The source repository is public; the running community application remains
+private. Anyone can read the source, fork the repository and open a pull request
+without an invitation. Public source access does not grant Azure, database,
+member-profile, CV or application-admin access.
 
-After accepting an invitation, create a feature branch from `main`, commit and
-push the change, then open a pull request targeting `main` for review. Include a
-short description and the checks run. Keep credentials, CVs and real member data
-out of commits and PR attachments; use synthetic fixtures for examples.
+Fork the repository, create a feature branch from `main`, commit and push the
+change to your fork, then open a pull request targeting this repository's `main`
+for review. Include a short description and the checks run. Keep credentials,
+CVs and real member data out of commits and PR attachments; use synthetic
+fixtures for examples. Direct write access is reserved for separately invited
+collaborators.
 
 Run the relevant checks from the next section. The PostgreSQL reference tests,
 web lint, validation tests and build can run without Azure operator access.
